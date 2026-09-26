@@ -28,6 +28,8 @@ interface CalibratePanelProps {
   onReset(): void;
   /** 校准是否已被应用（当前对齐使用的是校准后的 B） */
   applied: boolean;
+  /** 迁移模式：从工作区带着旧对齐组进入，应用按钮只生成迁移预览而不直接替换工作区 */
+  migrateMode?: boolean;
   aligning: boolean;
   onApply(): void;
   /** 用原始 B 时间直接进入对齐（一键恢复原始 B 时间） */
@@ -88,16 +90,24 @@ export function CalibratePanel(props: CalibratePanelProps) {
     <section className="calibrate">
       <div className="cal-head">
         <div className="cal-title">
-          <h2>时间轴校准</h2>
+          <h2>{props.migrateMode ? '重新校准并迁移审校决定' : '时间轴校准'}</h2>
           <p>
             自动从两侧文本筛选高相似锚点，剔除顺序冲突与异常偏移后，用分段线性映射校正
             <strong> {props.nameB} </strong>
-            的时间轴（参考 <strong>{props.nameA}</strong>）。仅点击「应用校准」才会替换对齐输入。
+            的时间轴（参考 <strong>{props.nameA}</strong>）。
+            {props.migrateMode ? (
+              <>
+                应用后会用新校准对相同两份字幕重新对齐，先预览可迁移、歧义与无对应的旧组，
+                确认后才一次提交；<strong>取消则旧工作区保持不变</strong>。
+              </>
+            ) : (
+              <>仅点击「应用校准」才会替换对齐输入。</>
+            )}
           </p>
         </div>
         <div className="cal-actions">
           <button className="btn ghost sm" onClick={props.onBack}>
-            ← 返回导入
+            {props.migrateMode ? '← 取消，保留旧工作区' : '← 返回导入'}
           </button>
         </div>
       </div>
@@ -325,7 +335,7 @@ export function CalibratePanel(props: CalibratePanelProps) {
         </div>
         <span className="spacer" />
         <button className="btn ghost lg" disabled={props.aligning} onClick={props.onUseOriginal}>
-          恢复原始 B 时间并对齐
+          {props.migrateMode ? '用原始 B 时间重新对齐并预览' : '恢复原始 B 时间并对齐'}
         </button>
         <button
           className="btn primary lg"
@@ -334,9 +344,11 @@ export function CalibratePanel(props: CalibratePanelProps) {
         >
           {props.aligning
             ? '对齐中…'
-            : props.applied
-              ? '重新应用校准并对齐'
-              : '应用校准并开始对齐'}
+            : props.migrateMode
+              ? '应用新校准并预览迁移'
+              : props.applied
+                ? '重新应用校准并对齐'
+                : '应用校准并开始对齐'}
         </button>
       </div>
     </section>

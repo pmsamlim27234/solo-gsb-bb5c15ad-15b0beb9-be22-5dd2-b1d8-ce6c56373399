@@ -6,6 +6,7 @@ import {
   selectAnchors,
   type CalibOptions,
 } from './lib/calibrate';
+import { migrateStates, planMigration, type MigrationPlan } from './lib/migrate';
 import {
   autoFixTimes,
   buildMergedCues,
@@ -39,6 +40,7 @@ import { ExportPanel } from './components/ExportPanel';
 import { GroupCard } from './components/GroupCard';
 import { ImportPanel } from './components/ImportPanel';
 import { PacePanel } from './components/PacePanel';
+import { RecalibrateMigrateDialog } from './components/RecalibrateMigrateDialog';
 import { SnapPanel } from './components/SnapPanel';
 import { StatsBar } from './components/StatsBar';
 import { Toolbar, type Filter } from './components/Toolbar';
@@ -124,6 +126,20 @@ export default function App() {
   const [snapAccepted, setSnapAccepted] = useState<ReadonlySet<string>>(new Set());
   const cutParse = useMemo(() => parseCutList(cutText), [cutText]);
 
+  // 重新校准并迁移审校决定：从工作区进入校准页时保留旧 groups/states；
+  // 新对齐算出后先在弹窗中预览迁移方案，确认后才一次提交，取消则旧工作区原封不动。
+  const [migrateMode, setMigrateMode] = useState(false);
+  const [migrateOpen, setMigrateOpen] = useState(false);
+  const [migrateBusy, setMigrateBusy] = useState(false);
+  const [migrateData, setMigrateData] = useState<{
+    oldGroups: AlignGroup[];
+    oldStates: GroupState[];
+    newGroups: AlignGroup[];
+    newCuesB: Cue[];
+    calibrated: boolean;
+    plan: MigrationPlan;
+  } | null>(null);
+
   /** 用指定的 B 时间轴执行顺序对齐，并进入工作区。 */
   const runAlign = (b: Cue[]) => {
     setAligning(true);
@@ -158,14 +174,82 @@ export default function App() {
 
   const applyCalibration = () => {
     if (!calibFit.ok) return;
+    if (migrateMode) {
+      previewMigration(calibFit.mappedCues, true);
+      return;
+    }
     // 提交校准后的 B 时间作为对齐输入（仅此处替换）
     setCuesBUsed(calibFit.mappedCues);
     runAlign(calibFit.mappedCues);
   };
 
   const restoreOriginalB = () => {
+    if (migrateMode) {
+      previewMigration(cuesB, false);
+      return;
+    }
     setCuesBUsed(null);
     runAlign(cuesB);
+  };
+
+  /** 工作区入口：进入校准页并保留当前对齐组与人工决定。 */
+  const startRecalibrateMigrate = () => {
+    if (!groups) return;
+    setMigrateMode(true);
+    setMigrateData(null);
+    setPhase('calibrate');
+  };
+
+  /** 取消迁移：关闭预览、退出迁移校准页，旧工作区（groups/states）原封不动。 */
+  const cancelMigration = () => {
+    setMigrateOpen(false);
+    setMigrateBusy(false);
+    setMigrateData(null);
+    setMigrateMode(false);
+    setPhase('workspace');
+  };
+
+  /** 用新校准（或原始 B 时间）重新对齐，计算迁移预览并弹窗；不改动当前工作区。 */
+  const previewMigration = (b: Cue[], calibrated: boolean) => {
+    if (!groups) return;
+    const oldGroups = groups;
+    const oldStates = states;
+    setMigrateOpen(true);
+    setMigrateBusy(true);
+    window.setTimeout(() => {
+      const gs = alignCues(cuesA, b);
+      // 校准只改 B 的时间、不改文本且保持条数顺序，内容比对统一使用原始 cuesB 文本
+      const plan = planMigration(oldGroups, gs, cuesA, cuesB);
+      setMigrateData({ oldGroups, oldStates, newGroups: gs, newCuesB: b, calibrated, plan });
+      setMigrateBusy(false);
+    }, 30);
+  };
+
+  /** 确认预览：一次提交新对齐、迁移决定，并清空时间/消重/断行/节奏/吸附相关采纳。 */
+  const confirmMigration = () => {
+    const data = migrateData;
+    if (!data || !data.plan.ok) return;
+    const { oldStates, newGroups, newCuesB, calibrated, plan } = data;
+    const newBase = newGroups.map((g) => defaultStateFor(g, cuesA, newCuesB));
+    const newStates = migrateStates(newGroups, newBase, oldStates, plan);
+    // 校准后的 B 时间轴随提交一起生效；使用原始时间时明确置空
+    setCuesBUsed(calibrated ? newCuesB : null);
+    setGroups(newGroups);
+    setStates(newStates);
+    // 时间选择一律使用新组默认值（newBase 已保证）；清空所有下游采纳
+    setFilter('all');
+    setVisibleCount(PAGE_SIZE);
+    setAutoFix(false);
+    setView('groups');
+    setWrapApplied(new Set());
+    setScrollAccepted(new Set());
+    setPaceAccepted(new Set());
+    setSnapAccepted(new Set());
+    setMigrateOpen(false);
+    setMigrateData(null);
+    setMigrateMode(false);
+    setAligning(false);
+    setPhase('workspace');
   };
 
   const toggleAnchor = (key: string) => {
@@ -228,6 +312,9 @@ export default function App() {
     setCalibOpts(DEFAULT_CALIB_OPTIONS);
     setGroups(null);
     setStates([]);
+    setMigrateMode(false);
+    setMigrateOpen(false);
+    setMigrateData(null);
     setPhase('calibrate');
   };
 
@@ -242,6 +329,9 @@ export default function App() {
     setScrollAccepted(new Set());
     setPaceAccepted(new Set());
     setSnapAccepted(new Set());
+    setMigrateMode(false);
+    setMigrateOpen(false);
+    setMigrateData(null);
     setPhase('import');
   };
 
@@ -256,6 +346,9 @@ export default function App() {
     setScrollAccepted(new Set());
     setPaceAccepted(new Set());
     setSnapAccepted(new Set());
+    setMigrateMode(false);
+    setMigrateOpen(false);
+    setMigrateData(null);
     setPhase('calibrate');
   };
 
@@ -600,9 +693,10 @@ export default function App() {
           onReset={resetAnchors}
           applied={false}
           aligning={aligning}
+          migrateMode={migrateMode}
           onApply={applyCalibration}
           onUseOriginal={restoreOriginalB}
-          onBack={() => setPhase('import')}
+          onBack={migrateMode ? cancelMigration : () => setPhase('import')}
         />
       ) : (
         groups && (
@@ -619,6 +713,13 @@ export default function App() {
                 <span className="calib-chip off">使用原始 B 时间</span>
               )}
               <span className="spacer" />
+              <button
+                className="btn sm accent"
+                onClick={startRecalibrateMigrate}
+                title="保留旧对齐组与人工文本选择，重新校准并重新对齐，再预览可迁移的审校决定"
+              >
+                重新校准并迁移决定
+              </button>
               <button className="btn sm" onClick={recalibrate}>
                 时间轴校准
               </button>
@@ -788,6 +889,20 @@ export default function App() {
           </>
         )
       )}
+
+      <RecalibrateMigrateDialog
+        open={migrateOpen}
+        busy={migrateBusy}
+        oldGroupCount={migrateData?.oldGroups.length ?? groups?.length ?? 0}
+        newGroups={migrateData?.newGroups ?? null}
+        newCuesA={cuesA}
+        newCuesB={migrateData?.newCuesB ?? cuesB}
+        plan={migrateData?.plan ?? null}
+        calibrated={migrateData?.calibrated ?? false}
+        anchorCount={calibFit.active.length}
+        onClose={cancelMigration}
+        onConfirm={confirmMigration}
+      />
 
       <footer className="foot">纯前端本地运行 · 字幕数据不会离开浏览器 · 校准、对齐与校验均在本地完成</footer>
     </div>
