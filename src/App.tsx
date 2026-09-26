@@ -16,6 +16,7 @@ import {
   type Resolution,
   type TimeChoice,
 } from './lib/merge';
+import { applyMigration, planMigration, type MigratePlan } from './lib/migrate';
 import {
   analyzePace,
   applyPaceFixes,
@@ -38,6 +39,7 @@ import { DedupePanel } from './components/DedupePanel';
 import { ExportPanel } from './components/ExportPanel';
 import { GroupCard } from './components/GroupCard';
 import { ImportPanel } from './components/ImportPanel';
+import { MigrateDialog } from './components/MigrateDialog';
 import { PacePanel } from './components/PacePanel';
 import { SnapPanel } from './components/SnapPanel';
 import { StatsBar } from './components/StatsBar';
@@ -94,6 +96,16 @@ export default function App() {
   const [filter, setFilter] = useState<Filter>('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [autoFix, setAutoFix] = useState(false);
+
+  // 重新校准并迁移审校决定：迁移模式标记，以及待确认的迁移结果
+  // （确认提交前保留旧对齐组、决定与 B 时间轴，取消即回到旧工作区）
+  const [migrateMode, setMigrateMode] = useState(false);
+  const [pendingMigration, setPendingMigration] = useState<{
+    groups: AlignGroup[];
+    /** 新对齐使用的 B 时间轴（null 表示原始 B） */
+    cuesB: Cue[] | null;
+    plan: MigratePlan;
+  } | null>(null);
 
   /** 当前对齐链路实际使用的 B：已校准提交时为校准后的时间轴，否则为原始 B。 */
   const cuesBEff: Cue[] = groups ? (cuesBUsed ?? cuesB) : cuesB;
@@ -158,14 +170,76 @@ export default function App() {
 
   const applyCalibration = () => {
     if (!calibFit.ok) return;
+    if (migrateMode) {
+      // 迁移模式：不直接替换对齐，先重新对齐并进入迁移预览
+      runMigrateAlign(calibFit.mappedCues);
+      return;
+    }
     // 提交校准后的 B 时间作为对齐输入（仅此处替换）
     setCuesBUsed(calibFit.mappedCues);
     runAlign(calibFit.mappedCues);
   };
 
   const restoreOriginalB = () => {
+    if (migrateMode) {
+      runMigrateAlign(null);
+      return;
+    }
     setCuesBUsed(null);
     runAlign(cuesB);
+  };
+
+  /** 进入“重新校准并迁移审校决定”：保留当前对齐组与决定，回到校准页。 */
+  const startMigrate = () => {
+    if (!groups) return;
+    setMigrateMode(true);
+    setPhase('calibrate');
+  };
+
+  /**
+   * 迁移模式下用指定的 B 时间轴（null 表示原始 B）对相同两份字幕重新对齐，
+   * 计算旧组 → 新组的迁移方案并打开预览；旧工作区在确认前保持不变。
+   */
+  const runMigrateAlign = (b: Cue[] | null) => {
+    if (!groups) return;
+    const eff = b ?? cuesB;
+    setAligning(true);
+    // 让出一帧以渲染“对齐中”状态，再执行同步计算
+    window.setTimeout(() => {
+      const newGroups = alignCues(cuesA, eff);
+      const plan = planMigration(groups, newGroups, cuesA, cuesBEff, eff);
+      setPendingMigration({ groups: newGroups, cuesB: b, plan });
+      setAligning(false);
+      setMigrateMode(false);
+      setPhase('workspace');
+    }, 30);
+  };
+
+  /** 确认迁移：一次性提交新对齐与可迁移的决定，清空消重/断行/节奏/吸附采纳。 */
+  const confirmMigration = () => {
+    const p = pendingMigration;
+    if (!p || !p.plan.ok) return;
+    const eff = p.cuesB ?? cuesB;
+    setCuesBUsed(p.cuesB);
+    setGroups(p.groups);
+    setStates(applyMigration(p.groups, cuesA, eff, states, p.plan));
+    setFilter('all');
+    setVisibleCount(PAGE_SIZE);
+    setAutoFix(false);
+    setView('groups');
+    setWrapApplied(new Set());
+    setScrollAccepted(new Set());
+    setPaceAccepted(new Set());
+    setSnapAccepted(new Set());
+    setPendingMigration(null);
+    setPhase('workspace');
+  };
+
+  /** 取消迁移：丢弃新对齐与方案，保留旧工作区。 */
+  const cancelMigration = () => {
+    setPendingMigration(null);
+    setMigrateMode(false);
+    setPhase('workspace');
   };
 
   const toggleAnchor = (key: string) => {
@@ -228,6 +302,8 @@ export default function App() {
     setCalibOpts(DEFAULT_CALIB_OPTIONS);
     setGroups(null);
     setStates([]);
+    setMigrateMode(false);
+    setPendingMigration(null);
     setPhase('calibrate');
   };
 
@@ -242,6 +318,8 @@ export default function App() {
     setScrollAccepted(new Set());
     setPaceAccepted(new Set());
     setSnapAccepted(new Set());
+    setMigrateMode(false);
+    setPendingMigration(null);
     setPhase('import');
   };
 
@@ -256,6 +334,8 @@ export default function App() {
     setScrollAccepted(new Set());
     setPaceAccepted(new Set());
     setSnapAccepted(new Set());
+    setMigrateMode(false);
+    setPendingMigration(null);
     setPhase('calibrate');
   };
 
@@ -598,11 +678,12 @@ export default function App() {
           forced={calibForced}
           onToggle={toggleAnchor}
           onReset={resetAnchors}
-          applied={false}
+          applied={migrateMode ? calibApplied : false}
           aligning={aligning}
           onApply={applyCalibration}
           onUseOriginal={restoreOriginalB}
-          onBack={() => setPhase('import')}
+          onBack={() => (migrateMode ? cancelMigration() : setPhase('import'))}
+          migrate={migrateMode}
         />
       ) : (
         groups && (
@@ -619,6 +700,13 @@ export default function App() {
                 <span className="calib-chip off">使用原始 B 时间</span>
               )}
               <span className="spacer" />
+              <button
+                className="btn sm"
+                onClick={startMigrate}
+                title="保留当前对齐组与审校决定，应用新校准并重新对齐后，迁移可唯一对应的文本选择与单边保留/丢弃"
+              >
+                重新校准并迁移审校决定
+              </button>
               <button className="btn sm" onClick={recalibrate}>
                 时间轴校准
               </button>
@@ -785,6 +873,20 @@ export default function App() {
                 onJump={jumpToGroup}
               />
             </div>
+
+            {pendingMigration && (
+              <MigrateDialog
+                plan={pendingMigration.plan}
+                oldGroups={groups}
+                newGroups={pendingMigration.groups}
+                oldStates={states}
+                cuesA={cuesA}
+                oldCuesB={cuesBEff}
+                newCuesB={pendingMigration.cuesB ?? cuesB}
+                onConfirm={confirmMigration}
+                onCancel={cancelMigration}
+              />
+            )}
           </>
         )
       )}

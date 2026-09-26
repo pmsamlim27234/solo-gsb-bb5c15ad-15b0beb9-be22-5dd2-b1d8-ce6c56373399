@@ -33,6 +33,8 @@ interface CalibratePanelProps {
   /** 用原始 B 时间直接进入对齐（一键恢复原始 B 时间） */
   onUseOriginal(): void;
   onBack(): void;
+  /** 迁移模式：从工作区进入，应用/恢复后进入迁移预览而不是直接替换对齐 */
+  migrate?: boolean;
 }
 
 type RowStatus = 'active' | 'off' | 'dropped';
@@ -97,10 +99,17 @@ export function CalibratePanel(props: CalibratePanelProps) {
         </div>
         <div className="cal-actions">
           <button className="btn ghost sm" onClick={props.onBack}>
-            ← 返回导入
+            {props.migrate ? '← 取消迁移，返回工作区' : '← 返回导入'}
           </button>
         </div>
       </div>
+
+      {props.migrate && (
+        <div className="cal-notice warn">
+          迁移模式：当前对齐组与审校决定已保留。对相同两份字幕应用新校准（或恢复原始 B
+          时间）后将重新对齐，并预览可迁移 / 歧义 / 无对应的审校决定；确认后一次提交，取消则保留当前工作区。
+        </div>
+      )}
 
       <div className="wrap-settings cal-settings">
         <label>
@@ -325,7 +334,7 @@ export function CalibratePanel(props: CalibratePanelProps) {
         </div>
         <span className="spacer" />
         <button className="btn ghost lg" disabled={props.aligning} onClick={props.onUseOriginal}>
-          恢复原始 B 时间并对齐
+          {props.migrate ? '恢复原始 B 时间并预览迁移' : '恢复原始 B 时间并对齐'}
         </button>
         <button
           className="btn primary lg"
@@ -334,9 +343,13 @@ export function CalibratePanel(props: CalibratePanelProps) {
         >
           {props.aligning
             ? '对齐中…'
-            : props.applied
-              ? '重新应用校准并对齐'
-              : '应用校准并开始对齐'}
+            : props.migrate
+              ? props.applied
+                ? '重新应用校准并预览迁移'
+                : '应用校准并预览迁移'
+              : props.applied
+                ? '重新应用校准并对齐'
+                : '应用校准并开始对齐'}
         </button>
       </div>
     </section>

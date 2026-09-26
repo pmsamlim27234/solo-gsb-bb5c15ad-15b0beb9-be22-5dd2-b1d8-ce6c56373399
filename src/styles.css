@@ -1652,3 +1652,124 @@ body {
   color: var(--muted);
   border: 1px solid var(--border-soft);
 }
+
+/* ---------- 迁移审校决定预览 ---------- */
+.migrate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(6, 10, 20, 0.66);
+}
+
+.migrate-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(880px, 100%);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.migrate-dialog h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.migrate-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.migrate-summary {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.migrate-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.migrate-hint {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+
+.migrate-none {
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 4px 2px;
+}
+
+.migrate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.migrate-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  font-size: 12.5px;
+}
+
+.migrate-row.ok {
+  border-color: rgba(52, 211, 153, 0.35);
+}
+
+.migrate-row.amb {
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
+.migrate-row.miss {
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.migrate-row .mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.migrate-row .txt {
+  flex: 1;
+  min-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.migrate-more {
+  padding: 2px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.migrate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
